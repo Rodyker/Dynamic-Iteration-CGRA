@@ -9,14 +9,14 @@ logic [127:0] pe_config_in;
 logic [7:0] row_config_in;
 logic [7:0] col_config_in;
 logic signed [7:0] global_config_in;
-logic [29:0] lcu_config_in;
+logic [33:0] lcu_config_in;
 
 logic signed [3:0][7:0] input_data;
 logic signed [3:0][7:0] output_data;
 
 logic done;
 
-byte conf[23];
+byte conf[24];
 
 top dut(
     .clk(clk),
@@ -63,8 +63,8 @@ initial begin
     count = $fread(conf, fd);
     $fclose(fd);
 
-    if (count != 23)
-        $fatal("Expected 23-byte config.bin, read %0d bytes", count);
+    if (count != 24)
+        $fatal("Expected 24-byte config.bin, read %0d bytes", count);
 
     //////////////////////////////////////////////////
     // Unpack configuration
@@ -81,7 +81,8 @@ initial begin
 
     lcu_config_in =
     {
-        conf[22][5:0],
+        conf[23][1:0],
+        conf[22],
         conf[21],
         conf[20],
         conf[19]
@@ -96,10 +97,10 @@ initial begin
     load_config = 0;
 
     //fixed point representation with 5 fractional bits
-    input_data[0] = 8'b00111000; //divisor (1.75)
+    input_data[0] = 8'h00;
     input_data[1] = 8'b00100000; //initial guess (1.0)
     input_data[2] = 8'h00;
-    input_data[3] = 8'h00;
+    input_data[3] = 8'b00111000; //divisor (1.75)
 
     //////////////////////////////////////////////////
     // Run
@@ -144,6 +145,7 @@ initial begin
             for (int r = 0; r < 4; r++) begin
                 for (int c = 0; c < 4; c++) begin
                     $write("%f ", dut.pe_out[r][c] / 32.0);
+                    // $write("%b ", dut.pe_out[r][c]);
                 end
                 $write("\n");
             end
@@ -154,3 +156,7 @@ initial begin
 end
 
 endmodule
+
+//Allow for more extensive tiling to allow for more complex programs
+//Potential block floating point per tile
+//ADD MAC AND DELAY

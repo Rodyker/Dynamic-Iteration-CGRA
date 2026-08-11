@@ -10,6 +10,7 @@ module lcu(
     input logic [3:0] pe_select,
     input logic [1:0] compare,
     input logic signed [7:0] compare_const,
+    input logic [3:0] min_cycles,
     input logic [15:0] timeout
 );
 
@@ -55,8 +56,8 @@ always_ff @(posedge clk or posedge rst) begin
     end
 
     else if (!done) begin
-
-        if (compare_done)
+        
+        if (compare_done && counter >= {12'b0,{min_cycles}})
             done <= 1;
         else if (counter >= timeout)
             done <= 1;

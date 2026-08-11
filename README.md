@@ -89,10 +89,10 @@ Each operand selects one of the following inputs.
 
 ## LCU Configuration
 
-The row immediately following the PE grid contains four values:
+The row immediately following the PE grid contains five values:
 
 ```
-PE_INDEX, COMPARE, CONSTANT, TIMEOUT
+PE_INDEX, COMPARE, CONSTANT, MIN_CYCLES, TIMEOUT
 ```
 
 where
@@ -105,6 +105,7 @@ where
   * `EQ`
   * `FALSE`
 * **CONSTANT** is an 8-bit hexadecimal value.
+* **MIN_CYCLES** is a 4-bit hexadecimal value that must elapse before a compare match can end execution.
 * **TIMEOUT** is a 16-bit hexadecimal value.
 
 Flattened indices are computed using

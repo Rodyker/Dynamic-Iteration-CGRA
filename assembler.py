@@ -9,13 +9,13 @@ Reads:
 Writes:
     config.bin
 
-Output layout (23 bytes)
+Output layout (24 bytes)
 
 Bytes  0-15 : PE configuration
 Byte      16: Row routing
 Byte      17: Column routing
 Byte      18: Global constant
-Bytes 19-22: LCU configuration (30 bits packed little-endian)
+Bytes 19-23: LCU configuration (34 bits packed little-endian)
 """
 
 import csv
@@ -162,8 +162,8 @@ for r in range(N):
 
 lcu = rows[N]
 
-if len(lcu) != 4:
-    raise ValueError("LCU row must contain four fields.")
+if len(lcu) != 5:
+    raise ValueError("LCU row must contain five fields.")
 
 pe_select = parse_hex(lcu[0], 4)
 
@@ -176,13 +176,16 @@ compare = CMP[compare]
 
 compare_const = parse_hex(lcu[2], 8)
 
-timeout = parse_hex(lcu[3], 16)
+min_cycles = parse_hex(lcu[3], 4)
+
+timeout = parse_hex(lcu[4], 16)
 
 lcu_word = (
     pe_select
     | (compare << 4)
     | (compare_const << 6)
-    | (timeout << 14)
+    | (min_cycles << 14)
+    | (timeout << 18)
 )
 
 
@@ -245,7 +248,7 @@ out.append(row_byte)
 out.append(col_byte)
 out.append(global_const)
 
-for i in range(4):
+for i in range(5):
     out.append((lcu_word >> (8 * i)) & 0xFF)
 
 with open("config.bin", "wb") as f:

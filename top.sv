@@ -12,7 +12,7 @@ module top(
     input logic [7:0] row_config_in,  // 4 rows * choose from 4 PEs = 8 bits
     input logic [7:0] col_config_in,  // 4 cols * choose from 4 PEs = 8 bits
     input logic signed [7:0] global_config_in, // 8 bits
-    input logic [29:0] lcu_config_in, // 
+    input logic [33:0] lcu_config_in, // 
 
     // Data interface
     input logic signed [3:0][7:0] input_data,
@@ -28,7 +28,7 @@ logic [127:0] pe_config;
 logic [7:0] row_config;
 logic [7:0] col_config;
 logic signed [7:0] global_config;
-logic [29:0] lcu_config;
+logic [33:0] lcu_config;
 
 always_ff @(posedge clk or posedge rst) begin
 
@@ -203,7 +203,9 @@ lcu lcu_inst(
 
     .compare_const(lcu_config[13:6]),
 
-    .timeout(lcu_config[29:14]),
+    .min_cycles(lcu_config[17:14]),
+
+    .timeout(lcu_config[33:18]),
 
     .done(done)
 );
