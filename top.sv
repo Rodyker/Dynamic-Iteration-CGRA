@@ -7,28 +7,25 @@ module top(
     input logic start,
     input logic load_config,
 
-    // Configuration
-    input logic [127:0] pe_config_in, // 2 inputs * 4x4 PEs * 8 bits per PE = 128 bits
+    input logic [143:0] pe_config_in, // 4x4 PEs * 9 bits per PE = 144 bits
     input logic [7:0] row_config_in,  // 4 rows * choose from 4 PEs = 8 bits
     input logic [7:0] col_config_in,  // 4 cols * choose from 4 PEs = 8 bits
-    input logic signed [7:0] global_config_in, // 8 bits
-    input logic [33:0] lcu_config_in, // 
+    input logic signed [3:0][15:0] global_config_in, // one constant per row, Q3.13
+    input logic [37:0] lcu_config_in,
+    input logic [1:0] mode_config_in, // array-wide: [0] cmp_min, [1] branch_mode
 
-    // Data interface
-    input logic signed [3:0][7:0] input_data,
-    output logic signed [3:0][7:0] output_data,
+    input logic signed [3:0][15:0] input_data,
+    output logic signed [3:0][15:0] output_data,
 
     output logic done
 );
 
-
-// Configuration registers
-
-logic [127:0] pe_config;
+logic [143:0] pe_config;
 logic [7:0] row_config;
 logic [7:0] col_config;
-logic signed [7:0] global_config;
-logic [33:0] lcu_config;
+logic signed [3:0][15:0] global_config;
+logic [37:0] lcu_config;
+logic [1:0] mode_config;
 
 always_ff @(posedge clk or posedge rst) begin
 
@@ -38,6 +35,7 @@ always_ff @(posedge clk or posedge rst) begin
         col_config <= '0;
         global_config <= '0;
         lcu_config <= '0;
+        mode_config <= '0;
     end
 
     else if(load_config) begin
@@ -46,38 +44,28 @@ always_ff @(posedge clk or posedge rst) begin
         col_config <= col_config_in;
         global_config <= global_config_in;
         lcu_config <= lcu_config_in;
+        mode_config <= mode_config_in;
     end
 end
 
-
-// Input buffer
-
-logic signed [3:0][7:0] input_buffer;
+logic signed [3:0][15:0] input_buffer;
+logic input_valid;
 
 always_ff @(posedge clk or posedge rst) begin
-    if(rst) input_buffer <= 0;
+    if(rst) begin
+        input_buffer <= 0;
+        input_valid <= 1'b0;
+    end
 
-    else if(start && done) input_buffer <= input_data;
+    else if(start && done) begin
+        input_buffer <= input_data;
+        input_valid <= 1'b1;
+    end
 end
 
-
-// Output capture
-
-always_ff @(posedge clk or posedge rst) begin
-    if (rst) 
-        output_data <= 0;
-    else 
-        for (int i = 0; i < 4; i++) begin
-            output_data[i] <= pe_out[3][i];
-        end
-end
-
-
-// PE configuration decode
-
-logic [3:0][3:0][2:0] pe_pick_a;
-logic [3:0][3:0][2:0] pe_pick_b;
-logic [3:0][3:0][1:0] pe_opcode;
+logic [3:0][3:0][2:0] pe_select_a;
+logic [3:0][3:0][2:0] pe_select_b;
+logic [3:0][3:0][2:0] pe_opcode;
 
 genvar pe_i;
 genvar pe_j;
@@ -85,15 +73,12 @@ genvar pe_j;
 generate
     for (pe_i = 0; pe_i < 4; pe_i = pe_i + 1) begin : pe_config_row
         for (pe_j = 0; pe_j < 4; pe_j = pe_j + 1) begin : pe_config_col
-            assign pe_pick_a[pe_i][pe_j] = pe_config[(pe_i*32) + (pe_j*8) +: 3];
-            assign pe_pick_b[pe_i][pe_j] = pe_config[(pe_i*32) + (pe_j*8) + 3 +: 3];
-            assign pe_opcode[pe_i][pe_j] = pe_config[(pe_i*32) + (pe_j*8) + 6 +: 2];
+            assign pe_select_a[pe_i][pe_j] = pe_config[(pe_i*36) + (pe_j*9) +: 3];
+            assign pe_select_b[pe_i][pe_j] = pe_config[(pe_i*36) + (pe_j*9) + 3 +: 3];
+            assign pe_opcode[pe_i][pe_j] = pe_config[(pe_i*36) + (pe_j*9) + 6 +: 3];
         end
     end
 endgenerate
-
-
-// Bus select decode
 
 logic [1:0] row_select [4];
 logic [1:0] col_select [4];
@@ -107,16 +92,19 @@ generate
     end
 endgenerate
 
+logic signed [3:0][3:0][15:0] North, South, East, West, Row, Col, Const, pe_out;
+logic signed [3:0][15:0] row_bus, col_bus;
 
-// PE wiring
-
-logic signed [3:0][3:0][7:0] North, South, East, West, Row, Col, Const, pe_out;
-logic signed [3:0][7:0] row_bus, col_bus;
+// Validity plane, mirroring the data interconnect
+logic [3:0][3:0] v_North, v_South, v_East, v_West, v_Row, v_Col, pe_valid;
+logic [3:0] row_bus_valid, col_bus_valid;
 
 always_comb begin
     for(int i=0;i<4;i++) begin
-        row_bus[i] = pe_out[i][row_select[i]];
-        col_bus[i] = pe_out[col_select[i]][i];
+        row_bus[i]       = pe_out[i][row_select[i]];
+        col_bus[i]       = pe_out[col_select[i]][i];
+        row_bus_valid[i] = pe_valid[i][row_select[i]];
+        col_bus_valid[i] = pe_valid[col_select[i]][i];
     end
 end
 
@@ -125,46 +113,64 @@ generate
         for (pe_j = 0; pe_j < 4; pe_j = pe_j + 1) begin : pe_wire_col
 
             if (pe_i == 0) begin
-                assign North[pe_i][pe_j] = input_buffer[pe_j];
+                assign North[pe_i][pe_j]   = input_buffer[pe_j];
+                assign v_North[pe_i][pe_j] = input_valid;
             end else begin
-                assign North[pe_i][pe_j] = pe_out[pe_i-1][pe_j];
+                assign North[pe_i][pe_j]   = pe_out[pe_i-1][pe_j];
+                assign v_North[pe_i][pe_j] = pe_valid[pe_i-1][pe_j];
             end
 
             if (pe_i == 3) begin
-                assign South[pe_i][pe_j] = pe_out[0][pe_j];
+                assign South[pe_i][pe_j]   = pe_out[0][pe_j];
+                assign v_South[pe_i][pe_j] = pe_valid[0][pe_j];
             end else begin
-                assign South[pe_i][pe_j] = pe_out[pe_i+1][pe_j];
+                assign South[pe_i][pe_j]   = pe_out[pe_i+1][pe_j];
+                assign v_South[pe_i][pe_j] = pe_valid[pe_i+1][pe_j];
             end
 
             if (pe_j == 3) begin
-                assign East[pe_i][pe_j] = pe_out[pe_i][0];
+                assign East[pe_i][pe_j]   = pe_out[pe_i][0];
+                assign v_East[pe_i][pe_j] = pe_valid[pe_i][0];
             end else begin
-                assign East[pe_i][pe_j] = pe_out[pe_i][pe_j+1];
+                assign East[pe_i][pe_j]   = pe_out[pe_i][pe_j+1];
+                assign v_East[pe_i][pe_j] = pe_valid[pe_i][pe_j+1];
             end
 
             if (pe_j == 0) begin
-                assign West[pe_i][pe_j] = pe_out[pe_i][3];
+                assign West[pe_i][pe_j]   = pe_out[pe_i][3];
+                assign v_West[pe_i][pe_j] = pe_valid[pe_i][3];
             end else begin
-                assign West[pe_i][pe_j] = pe_out[pe_i][pe_j-1];
+                assign West[pe_i][pe_j]   = pe_out[pe_i][pe_j-1];
+                assign v_West[pe_i][pe_j] = pe_valid[pe_i][pe_j-1];
             end
 
             assign Row[pe_i][pe_j]   = row_bus[pe_i];
             assign Col[pe_i][pe_j]   = col_bus[pe_j];
-            assign Const[pe_i][pe_j] = global_config;
+            assign Const[pe_i][pe_j] = global_config[pe_i];
+
+            assign v_Row[pe_i][pe_j] = row_bus_valid[pe_i];
+            assign v_Col[pe_i][pe_j] = col_bus_valid[pe_j];
         end
     end
 endgenerate
 
-
-// PE net
+always_ff @(posedge clk or posedge rst) begin
+    if (rst)
+        output_data <= 0;
+    else
+        for (int i = 0; i < 4; i++) begin
+            output_data[i] <= col_bus[i];
+        end
+end
 
 generate
     for (pe_i = 0; pe_i < 4; pe_i = pe_i + 1) begin : pe_array_row
         for (pe_j = 0; pe_j < 4; pe_j = pe_j + 1) begin : pe_array_col
-            pe pe_inst(
+            pe #(.N_PERM(pe_i == 0)) pe_inst(
             .clk(clk),
             .rst(rst),
             .done(done),
+            .start(start),
 
             .North(North[pe_i][pe_j]),
             .South(South[pe_i][pe_j]),
@@ -175,19 +181,27 @@ generate
             .Col(Col[pe_i][pe_j]),
             .Const(Const[pe_i][pe_j]),
 
-            .a_sel(pe_pick_a[pe_i][pe_j]),
-            .b_sel(pe_pick_b[pe_i][pe_j]),
+            .v_North(v_North[pe_i][pe_j]),
+            .v_South(v_South[pe_i][pe_j]),
+            .v_East(v_East[pe_i][pe_j]),
+            .v_West(v_West[pe_i][pe_j]),
+            .v_Row(v_Row[pe_i][pe_j]),
+            .v_Col(v_Col[pe_i][pe_j]),
+
+            .a_source_sel(pe_select_a[pe_i][pe_j]),
+            .b_source_sel(pe_select_b[pe_i][pe_j]),
 
             .opcode(pe_opcode[pe_i][pe_j]),
 
-            .out(pe_out[pe_i][pe_j])
+            .cmp_min(mode_config[0]),
+            .branch_mode(mode_config[1]),
+
+            .out(pe_out[pe_i][pe_j]),
+            .valid(pe_valid[pe_i][pe_j])
             );
         end
     end
 endgenerate
-
-
-// LCU
 
 lcu lcu_inst(
 
@@ -196,16 +210,17 @@ lcu lcu_inst(
     .start(start),
 
     .pe_values(pe_out),
+    .pe_valids(pe_valid),
 
     .pe_select(lcu_config[3:0]),
 
     .compare(lcu_config[5:4]),
 
-    .compare_const(lcu_config[13:6]),
+    .compare_const(lcu_config[21:6]),
 
-    .min_cycles(lcu_config[17:14]),
+    .min_cycles(lcu_config[27:22]),
 
-    .timeout(lcu_config[33:18]),
+    .timeout(lcu_config[37:28]),
 
     .done(done)
 );

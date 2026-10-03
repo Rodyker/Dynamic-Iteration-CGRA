@@ -1,8 +1,0 @@
-MUL W S, MUL N X, MUL W X, MUL N X
-MUL E E, ADD N C, MUL N X, MUL N R
-MUL E X, ADD N N, MUL N X, SUB X N
-SUB N S, SUB E W, MUL N X, ABS N N
-0, FALSE, 0, 3, 20
-0, 1, 0, 0
-0, 3, 0, 0
-20
