@@ -1,17 +1,19 @@
+# Written by Claude.
 # 1/sqrt(D) and sqrt(D)  --  Newton y <- y(1.5 - E*y*y) with E = D/2
-# range D in [0.25, 4.0]  converges in 14-22 cycles; <=6.5 LSB on 1/sqrt (worst
-#       near D=0.27), <=4.6 LSB on sqrt (worst near D=2.8); neither worst case
-#       is at the range edges, and both are fixed-point limit cycles in the
-#       iteration, verified timeout-free at 0.001 resolution across the range
 #
-# t = E*y = sqrt(D)/2 is already a loop node, so sqrt costs one doubling cell.
+# sqrt(D) = 2*E*y, and E*y is already a loop node, so sqrt costs one ADD cell.
+#
+# range    D in [0.25, 4.0]: within 6.5 LSB on 1/sqrt and 4.6 LSB on sqrt
+# cycles   14-22
 #
 # inputs   [0] = seed coeff a = 0x2CF3 (1.405)
-#          [1] = E = D/2   (host shifts D right by one)
+#          [1] = E = D/2
 #          [3] = seed coeff b = 0x110A (0.532)
-# constants one per row: row1 = 0x3000 (1.5), used by the MAC at (1,2)
+# consts   row1 = 0x3000 (1.5) for the MAC
 # outputs  output[0] = 1/sqrt(D)   output[1] = sqrt(D)
 #
+#@ inputs 2CF3 1000 0000 110A
+#@ board  sw=1 led=0
 SUB N W, PASS N, PASS F, MUL N R
 CARRY W N, MUL N W, MAC W R, MUL W R
 PASS F, ADD N N, PASS F, PASS F

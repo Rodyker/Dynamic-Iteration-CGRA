@@ -7,9 +7,9 @@ module top(
     input logic start,
     input logic load_config,
 
-    input logic [143:0] pe_config_in, // 4x4 PEs * 9 bits per PE = 144 bits
-    input logic [7:0] row_config_in,  // 4 rows * choose from 4 PEs = 8 bits
-    input logic [7:0] col_config_in,  // 4 cols * choose from 4 PEs = 8 bits
+    input logic [143:0] pe_config_in, // 16 PEs x 9 bits, row-major
+    input logic [7:0] row_config_in,  // 2-bit driver select per row bus
+    input logic [7:0] col_config_in,  // 2-bit driver select per column bus
     input logic signed [3:0][15:0] global_config_in, // one constant per row, Q3.13
     input logic [37:0] lcu_config_in,
     input logic [1:0] mode_config_in, // array-wide: [0] cmp_min, [1] branch_mode
@@ -95,7 +95,7 @@ endgenerate
 logic signed [3:0][3:0][15:0] North, South, East, West, Row, Col, Const, pe_out;
 logic signed [3:0][15:0] row_bus, col_bus;
 
-// Validity plane, mirroring the data interconnect
+// Valid pulses, routed alongside the data
 logic [3:0][3:0] v_North, v_South, v_East, v_West, v_Row, v_Col, pe_valid;
 logic [3:0] row_bus_valid, col_bus_valid;
 

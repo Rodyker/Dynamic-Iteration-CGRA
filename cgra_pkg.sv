@@ -1,65 +1,44 @@
 package cgra_pkg;
 
-// The letter in each comment is the mnemonic the assembler accepts in
-// config.csv, so these values are a wire format -- pinned, not positional.
+// Encodings are the assembler's wire format; the letter is the CSV mnemonic.
 typedef enum logic [2:0] {
-    NORTH = 3'd0, // N
+    NORTH = 3'd0, // N  (row 0: input buffer)
     SOUTH = 3'd1, // S
     EAST  = 3'd2, // E
     WEST  = 3'd3, // W
-    ROW   = 3'd4, // R  row broadcast bus
-    COL   = 3'd5, // C  column broadcast bus
+    ROW   = 3'd4, // R  row bus
+    COL   = 3'd5, // C  column bus
     CONST = 3'd6, // X  this row's constant
-    SELF  = 3'd7  // F  this PE's own output register
+    SELF  = 3'd7  // F  this PE's own output
 } source_t;
 
-// Grouped arithmetic-first for readability, which costs 1092 cells: the opcode
-// values decide how the output mux tree pairs up, and the old order
-// (ADD SUB MUL CMP CARRY MAC ...) paired more cheaply. Swapping CMP and CARRY
-// below recovers 395 of those if the cells are ever needed back.
+// Opcode order affects synthesized area: swapping CMP and CARRY measured
+// ~400 cells smaller.
 //
-// Slots 6 and 7 hold two branch idioms and branch_mode picks which the whole
-// array uses, so the two idioms share two encodings instead of four. The
-// pairing is not arbitrary: in both idioms slot 6 acts when the condition is
-// non-negative and slot 7 acts when it is negative.
+// Slots 6 and 7 are paged by branch_mode. In both pages, slot 6 acts on a
+// non-negative condition and slot 7 on a negative one.
 typedef enum logic [2:0] {
     ADD       = 3'd0,
     SUB       = 3'd1,
     MUL       = 3'd2,
-    MAC       = 3'd3, // out <= Const - a*b. The third operand is bound to the
-                      //   row constant, so it costs no config space.
-    CARRY     = 3'd4, // loop carry: fires on EITHER operand, seeds once from
-                      //   b, then locks to a. Every feedback loop is broken
-                      //   by one of these.
-    CMP       = 3'd5, // MAX, or MIN when cmp_min. CMP a a is an identity
-                      //   relay on either setting, which is what PASS
-                      //   assembles to.
-    COND_POS  = 3'd6, // acts when the condition is >= 0
-                      //   STEER_TOKEN  GATE:  fire iff a >= 0, out <= b
-                      //   STEER_VALUE  SEL:   out <= a when North >= 0, else
-                      //     b. The condition is bound to North, so it is a
-                      //     sign tap rather than a third 16-bit operand mux.
-    COND_NEG  = 3'd7  // acts when the condition is < 0
-                      //   STEER_TOKEN  NGATE: fire iff a < 0, out <= b.
-                      //     Exact complement of GATE, including at a == 0.
-                      //   STEER_VALUE  CSIGN: out <= -b when a < 0, else b
+    MAC       = 3'd3, // Const - a*b
+    CARRY     = 3'd4, // loop carry: seeds once from b, then follows a
+    CMP       = 3'd5, // MAX, or MIN when cmp_min. CMP a a = PASS a.
+    COND_POS  = 3'd6, // GATE: emit b iff a >= 0   | SEL:   North >= 0 ? a : b
+    COND_NEG  = 3'd7  // NGATE: emit b iff a < 0   | CSIGN: a < 0 ? -b : b
 } opcode_t;
 
-// What the condition's sign actually steers. This is the array-wide bit that
-// selects between the two idioms sharing slots 6 and 7.
 typedef enum logic {
-    STEER_TOKEN = 1'b0, // the sign decides WHETHER a token is emitted
-    STEER_VALUE = 1'b1  // the sign decides WHICH value is emitted
+    STEER_TOKEN = 1'b0, // GATE / NGATE: the sign decides whether a token is emitted
+    STEER_VALUE = 1'b1  // SEL / CSIGN:  the sign decides which value is emitted
 } branch_mode_t;
 
-
-// LCU convergence test. Values are pinned to match the assembler's table;
-// 'never converge, run to timeout' is spelled GT 7FFF.
+// Values must match the assembler's COMPARE_CODES.
 typedef enum logic [1:0] {
     EQ     = 2'd2,
     GT     = 2'd0,
     LT     = 2'd1,
-    ABS_LT = 2'd3  // |value| < compare_const   (two-sided)
+    ABS_LT = 2'd3  // |value| < compare_const
 } compare_t;
 
 endpackage

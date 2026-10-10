@@ -1,0 +1,35 @@
+# Written by Claude.
+# 4 x 1/D  --  Newton x <- x(2 - D*x) from a constant seed, one lane per column
+#
+# Each column is an independent 3-cycle loop, so four reciprocals run at once:
+#
+#   row 0  PASS N     D
+#   row 1  MAC N C    m = 2 - D*x
+#   row 2  MUL N C    x*m, fed back to the CARRY
+#   row 3  CARRY N X  x, seeded with x0 = 0x13B1 (0.615 = 2/(0.25+3.0))
+#
+# Column bus j carries x to rows 1-2 of its lane and is output[j].
+#
+# The LCU watches one PE, so it can't test all four lanes; instead the run is
+# a fixed 25 cycles (GT 7FFF never matches, timeout 0x18). Every lane has
+# settled by then: results are identical at any longer timeout.
+#
+# range    D in (0.25, 3.0]: within 3 LSB on every value (exhaustive sweep, all
+#          lanes). Outside the range the result is WRONG, not a timeout --
+#          a fixed-length run can't flag divergence. Diverges above D ~ 3.17.
+# cycles   25, every run
+#
+# inputs   [j] = D for lane j
+# consts   row1 = 0x4000 (2.0) for the MAC, row3 = 0x13B1 (x0)
+# outputs  output[j] = 1/D[j]
+#
+#@ inputs 1000 2000 3000 6000
+#@ board  sw=0 led=0
+PASS N,    PASS N,    PASS N,    PASS N
+MAC N C,   MAC N C,   MAC N C,   MAC N C
+MUL N C,   MUL N C,   MUL N C,   MUL N C
+CARRY N X, CARRY N X, CARRY N X, CARRY N X
+0, GT, 7FFF, 0, 0018
+0, 0, 0, 0
+3, 3, 3, 3
+0000, 4000, 0000, 13B1

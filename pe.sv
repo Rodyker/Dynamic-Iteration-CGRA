@@ -1,9 +1,6 @@
 import cgra_pkg::*;
 
-// N_PERM marks the North input as a permanently-valid source. It is set for
-// row 0, whose North is the input buffer: inputs are loop-invariant and
-// input_valid is sticky for the whole run, so typing them as pulses was a
-// mismatch that made every row-0 PE latch a token it did not need.
+// N_PERM: North is permanently valid (row 0, where North is the latched input).
 module pe #(parameter bit N_PERM = 1'b0) (
     input logic clk,
     input logic rst,
@@ -66,11 +63,9 @@ always_comb begin
     endcase
 end
 
-// Permanence is a property of the SOURCE, so it needs no configuration:
-// Const is a static config value, Self is this PE's own register, and in row 0
-// North is the latched input, so all three always hold a usable value.
-// Everything else arrives as a one-cycle pulse that must be latched until this
-// PE fires.
+// Const, Self and row-0 North are permanent: always valid, never consumed.
+// Every other source delivers a one-cycle valid pulse, latched as a token
+// until this PE fires.
 logic a_permanent, b_permanent;
 logic a_pulse, b_pulse;
 
@@ -102,35 +97,28 @@ always_comb begin
     endcase
 end
 
-// Holding one token per operand makes generation matching automatic: the Nth
-// token to arrive on an edge is by construction from iteration N, so a PE
-// consuming one from each input per firing can never mix two iterations.
+// One token per operand, consumed per firing, keeps iterations from mixing.
+// Only the token is held; the data is read live when the PE fires.
 logic a_token, b_token;
 logic a_valid, b_valid;
 
-// Usable on the cycle it arrives as well as from the latch, or every hop
-// would cost two cycles instead of one.
+// A pulse counts on its arrival cycle, so each hop costs one cycle.
 assign a_valid = a_permanent | a_token | a_pulse;
 assign b_valid = b_permanent | b_token | b_pulse;
 
-// SEL reads its condition from North -- a third input, so it needs a third
-// token. Binding the condition to one direction is what keeps this to a sign
-// tap instead of the 16-bit third operand mux that measured +4235 LUT4.
+// SEL's condition is North's sign, which needs its own token.
 logic cond_token;
 logic cond_valid;
 assign cond_valid = N_PERM | v_North | cond_token;
 
 logic carry_seeded;
 
-// CSIGN needs a real negation of b; the adder's internal one is not
-// exposed as a 16-bit value.
+// Saturating negation for CSIGN.
 logic signed [15:0] neg_b;
 assign neg_b = (b == 16'sh8000) ? 16'sh7fff : -b;
 
-// The two paged slots, named once so the datapath below never spells out a
-// bare `branch_mode ? ... : ...`. Resolving them into a wider opcode enum
-// instead reads well but measures 1120-1900 cells worse: the 3-bit case is
-// fully dense and any recode makes it sparse.
+// Decoding the paged slots into a wider opcode enum measured larger, so
+// they stay as 3-bit opcode + branch_mode.
 logic value_page;
 assign value_page = branch_mode; // STEER_VALUE
 
@@ -143,8 +131,6 @@ assign fire_cond_pos = value_page ? (a_valid & b_valid & cond_valid) // SEL
 assign fire_cond_neg = value_page ? (a_valid & b_valid)              // CSIGN
                                   : (a_valid & b_valid &  a[15]);    // NGATE
 
-// A gate is the only op whose condition withholds the token rather than
-// choosing the value, so it is the only one that discards without firing.
 logic is_gate;
 assign is_gate = ((opcode == COND_POS) | (opcode == COND_NEG)) & ~value_page;
 
@@ -159,29 +145,23 @@ always_comb begin
     endcase
 end
 
-// A steer that does not fire still consumes its inputs: the untaken value is
-// discarded, not queued. Leaving it latched would pair a stale token with the
-// next iteration's fresh one, which is exactly the generation skew the token
-// discipline exists to prevent.
+// A gate that does not fire still consumes its inputs, so a stale token
+// can't pair with the next iteration's.
 logic consume;
 assign consume = is_gate ? (a_valid & b_valid) : fire;
 
-// The upper half is intentionally dead: only bits [15:0] of the shifted
-// product reach the output register. Slicing product[28:13] instead expresses
-// the same thing and silences lint, but measures ~1000 cells worse.
+// Only bits [15:0] are used; slicing [28:13] instead measured ~1000 cells larger.
 logic signed [31:0] mul_result;
 assign mul_result = ($signed({{16{a[15]}}, a}) * $signed({{16{b[15]}}, b})) >>> 13;
 
 logic signed [16:0] add_wide;
 logic signed [15:0] sat_add;
 
+// CMP reuses the subtractor: a >= b is the sign of a - b.
 logic sub_mode;
 assign sub_mode = (opcode == SUB) || (opcode == CMP);
 assign add_wide = $signed({a[15], a}) + (sub_mode ? -$signed({b[15], b}) : $signed({b[15], b}));
 
-// a >= b comes straight off the subtract's sign bit, so CMP needs no
-// comparator of its own -- only the output mux, whose polarity is the
-// array-wide min/max bit.
 logic a_ge_b;
 assign a_ge_b = ~add_wide[16];
 
@@ -189,9 +169,7 @@ assign sat_add = (add_wide > 17'sd32767)  ? 16'sd32767  :
                   (add_wide < -17'sd32768) ? -16'sd32768 :
                   add_wide[15:0];
 
-// MAC keeps its own adder rather than muxing the multiplier output into the
-// one above. Sharing looks cheaper and measures 7x worse: a mux on the DSP
-// output path fans out badly through technology mapping.
+// MAC has its own subtractor; sharing the one above measured much larger.
 logic signed [16:0] mac_wide;
 logic signed [15:0] mac_sat;
 
@@ -219,9 +197,7 @@ always_ff @(posedge clk or posedge rst) begin
         b_token <= consume ? 1'b0 : (b_pulse | b_token);
         cond_token <= consume ? 1'b0 : (v_North | cond_token);
 
-        // The CARRY seed is one-shot: lock on ANY firing, not on `a`
-        // arriving, since `a` is the feedback edge and cannot arrive until
-        // the cycle closes.
+        // CARRY seeds on its first firing; a is the feedback edge.
         if (fire) carry_seeded <= 1'b1;
 
         valid <= fire;

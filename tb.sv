@@ -81,8 +81,7 @@ initial begin
         conf[28]
     };
 
-    // Array-wide mode rides in the two bits the 38-bit LCU field leaves spare
-    // in its five bytes, so config.bin stays 33 bytes.
+    // Mode bits share byte 32 with the top of the LCU word.
     mode_config_in = conf[32][7:6];
 
     rst = 1;
@@ -113,9 +112,7 @@ initial begin
 
     wait(done);
 
-    // output_data is declared signed, but an element select of a packed array
-    // is unsigned by the LRM -- without $signed this silently printed -0.5 as
-    // 7.5, and whether it did depended on how Verilator inlined the build.
+    // An element select of a packed array is unsigned, so $signed is required.
     $display("Output:");
     $display("%f, %f, %f, %f",
         $signed(output_data[0]) / 8192.0,
@@ -123,6 +120,11 @@ initial begin
         $signed(output_data[2]) / 8192.0,
         $signed(output_data[3]) / 8192.0
     );
+    $display("Hex: %h %h %h %h", output_data[0], output_data[1], output_data[2], output_data[3]);
+    if (dut.lcu_inst.counter >= dut.lcu_inst.timeout)
+        $display("LCU: timeout after %0d cycles", dut.lcu_inst.counter);
+    else
+        $display("LCU: converged after %0d cycles", dut.lcu_inst.counter);
 
     $finish;
 end

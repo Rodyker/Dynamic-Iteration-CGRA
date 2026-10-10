@@ -35,7 +35,7 @@ always_comb begin
 end
 
 
-// Never converge on a value that has not yet been produced this run
+// Only match on a value the PE produced on the previous cycle.
 logic compare_match;
 logic compare_valid;
 
@@ -57,9 +57,7 @@ always_comb begin
 end
 
 
-// Wider than timeout needs (10 bits) on purpose: narrowing this to [9:0] and
-// comparing against timeout directly saves 11 flip-flops but costs 677 cells,
-// because the zero-extended compares below collapse almost entirely.
+// Wider than timeout on purpose: narrowing to 10 bits measured ~700 cells larger.
 logic [15:0] counter;
 always_ff @(posedge clk or posedge rst) begin
 

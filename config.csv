@@ -1,39 +1,35 @@
-# 1/D  --  Newton x <- x(2 - D*x), linear seed, 3-hop loop, 7 PEs
+# 1/D  --  Newton x <- x(2 - D*x), linear seed x0 = a - b*D, 3-cycle loop
 #
-# The cell at (2,3) is outside the loop and exists only for termination: it
-# computes 1 - (2 - D*x) = D*x - 1, which converges to ZERO, so the LCU can
-# use a two-sided ABS_LT test. Watching the MAC output with a one-sided LT
-# cannot tell convergence from overshoot -- at D=3 that reported x = 3.14 as
-# converged after 11 cycles. With ABS_LT the same input converges correctly.
+# Uses only rows 0 and 3, which are neighbours because row 3's South wraps to
+# row 0. Row 0 builds the seed from the inputs; row 3 runs the loop, so the
+# result is in the bottom row and rows 1-2 are free.
 #
-# range    D in [0.25, 3.0], verified by brute-force at 1-LSB resolution
-#          (2750 values): 10 LSB or better on every value that converges, and
-#          NEVER a wrong answer -- about 1.2% of values hit an isolated fixed-
-#          point limit cycle and safely TIME OUT instead of converging. This
-#          is not a bug to chase: an earlier version raised the timeout to
-#          rescue a couple of these, which gave a few OTHER values just
-#          enough rope to converge to a wrong, stable fixed point instead of
-#          timing out -- i.e. it traded a safe refusal for a silent wrong
-#          answer, the worst failure mode this design has. Leave timeout at
-#          its small value; it is doing real safety work, not just bounding
-#          latency.
-#          outside [0.25,3.0]: the run TIMES OUT rather than reporting a wrong
-#          answer (D=0, D=0.125 where 1/D overflows Q3.13, D>=~3.2 where the
-#          seed starts too far from the fixed point)
-# cycles   12-15 typical, up to 126 for the slowest values that still converge
-#          within the timeout
+#   (0,3) D              (0,0) b*D             (0,1) x0 = a - b*D
+#   (3,1) CARRY x        (3,3) m = 2 - D*x     (3,2) x*m, fed back to CARRY
+#   (3,0) e = 2 - 2m = 2(D*x - 1), watched by the LCU
+#
+# e goes to zero, so the LCU can use ABSLT; a one-sided test on x can't tell
+# convergence from overshoot. ABSLT 8 on e means |D*x - 1| < 4 LSB.
+#
+# range    D in [0.25, 3.0]: within 10 LSB when it converges. ~1.2% of values
+#          hit a fixed-point limit cycle and time out; outside the range it
+#          also times out. Keep the timeout small: raising it lets some values
+#          settle on a wrong fixed point instead of timing out.
+# cycles   12-15 typical, up to 126
 #
 # inputs   [0] = seed coeff b = 0x18E6 (0.778)
 #          [1] = seed coeff a = 0x3E61 (1.949)
 #          [3] = D
-# consts   row1 = 0x4000 (2.0) for the MAC, row2 = 0x2000 (1.0) for the test
-# output   1/D at output[1]
+# consts   row3 = 0x4000 (2.0)
+# output   output[1] = 1/D
 #
-MUL N R,   SUB N W,    PASS F, PASS N
-MUL R W,   CARRY W N,  PASS F, MAC N R
-PASS F,    PASS F,     PASS F, SUB X N
-PASS F,    PASS F,     PASS F, PASS F
-B, ABSLT, 0004, A, 0080
-3, 1, 0, 0
-1, 1, 1, 1
-0000, 4000, 2000, 0000
+#@ inputs 18E6 3E61 0000 2000
+#@ board  sw=3 led=1
+MUL N W,   SUB N W,    PASS F,   PASS N
+PASS F,    PASS F,     PASS F,   PASS F
+PASS F,    PASS F,     PASS F,   PASS F
+MAC W X,   CARRY E S,  MUL W E,  MAC S R
+C, ABSLT, 0008, A, 0080
+0, 0, 0, 1
+3, 3, 3, 3
+0000, 0000, 0000, 4000

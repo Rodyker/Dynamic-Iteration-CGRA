@@ -1,1 +1,30 @@
+# Build and simulation output
+/sim/build/
+/fpga/build/
 /obj_dir/
+*.bin
+*.bit
+*.vcd
+*.wdb
+
+# Vivado / xsim working files
+.Xil/
+xsim.dir/
+*.jou
+*.log
+*.pb
+*.str
+webtalk*
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor, OS and assistant settings
+.vscode/
+.idea/
+.claude/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,37 +1,20 @@
 #!/usr/bin/env python3
 
 """
-assembler.py
+Assemble a CGRA config CSV into a 33-byte binary (little-endian).
 
-Reads:
-    config.csv
+    python assembler.py [config.csv] [out.bin]     (defaults: config.csv, config.bin)
 
-Writes:
-    config.bin
+See README.md for the CSV format and binary layout.
 
-Output layout (33 bytes)
+Bytes  0-17: 16 PE words x 9 bits, row-major
+Byte     18: row bus selects
+Byte     19: column bus selects
+Bytes 20-27: four row constants, Q3.13
+Bytes 28-32: 38-bit LCU word; byte 32 bits 7:6 hold the mode bits
 
-Bytes  0-17: PE configuration (16 PEs * 9 bits, packed little-endian)
-Byte      18: Row routing
-Byte      19: Column routing
-Bytes 20-27: Four constants, one per PE row (16-bit Q3.13, little-endian)
-Bytes 28-32: LCU configuration (38 bits packed little-endian)
-             plus two array-wide mode bits in byte 32, bits 7:6
-
-PE cell syntax:
-    <OP> <A> [<B>]
-
-Every dependency cycle in the mapped graph must be broken by a CARRY cell,
-which seeds itself once from its b operand and then locks to a.
-
-Two opcode slots are paged by array-wide mode bits, so a kernel picks one
-idiom for the whole run and the assembler infers the bits from usage:
-
-    cmp_min      MAX  | MIN
-    branch_mode  GATE / NGATE (steer token)  |  SEL / CSIGN (steer value)
-
-An identity relay (MAX F F, MIN F F, PASS F) imposes no polarity, since
-min(a,a) == max(a,a), so relays are free to coexist with either setting.
+The mode bits (cmp_min, branch_mode) are array-wide and inferred from the
+opcodes used. PASS and MAX/MIN with identical operands work in either mode.
 """
 
 import csv
@@ -49,7 +32,7 @@ SOURCE_CODES = {
     "F": 7,
 }
 
-# mnemonic -> (opcode, mode field required, value required)
+# mnemonic -> (opcode, mode bit it requires, required value)
 CMP_OPCODE = 5
 OPCODE_INFO = {
     "ADD":   (0, None,           None),
@@ -59,14 +42,14 @@ OPCODE_INFO = {
     "CARRY": (4, None,           None),   # loop carry: seeds once, then locks
     "MAX":   (5, "cmp_min",      0),
     "MIN":   (5, "cmp_min",      1),
-    "PASS":  (5, None,           None),   # identity relay, polarity-agnostic
-    "GATE":  (6, "branch_mode",  0),      # fire iff a >= 0, out <= b
-    "NGATE": (7, "branch_mode",  0),      # fire iff a <  0, out <= b
-    "SEL":   (6, "branch_mode",  1),      # cond >= 0 ? a : b   (cond = North)
-    "CSIGN": (7, "branch_mode",  1),      # copy sign of a onto b
+    "PASS":  (5, None,           None),   # MAX a a: identity in either mode
+    "GATE":  (6, "branch_mode",  0),      # emit b iff a >= 0
+    "NGATE": (7, "branch_mode",  0),      # emit b iff a <  0
+    "SEL":   (6, "branch_mode",  1),      # North >= 0 ? a : b
+    "CSIGN": (7, "branch_mode",  1),      # a < 0 ? -b : b
 }
 
-# Array-wide mode, inferred from the opcodes a kernel actually uses.
+# Array-wide mode bits, set by the first opcode that needs them.
 mode_bit = {"cmp_min": None, "branch_mode": None}
 mode_why = {"cmp_min": None, "branch_mode": None}
 
@@ -100,11 +83,7 @@ def clean(tokens):
 
 
 def parse_pe(cell):
-    """
-    ADD N S
-    MUL W X
-    MAX N N     <- identity relay
-    """
+    """'OP A [B]' -> 9-bit PE word. A unary cell uses A for both operands."""
 
     parts = cell.split()
 
@@ -133,7 +112,7 @@ def parse_pe(cell):
 
     code, field, want = OPCODE_INFO[opcode]
 
-    # min(a,a) == max(a,a), so an identity relay pins nothing down.
+    # CMP a a is the same in either mode, so it doesn't fix cmp_min.
     if field is not None and not (code == CMP_OPCODE and a == b):
         require_mode(field, want, cell.strip())
 
@@ -162,12 +141,12 @@ def parse_hex(value, bits):
 
 
 config_path = sys.argv[1] if len(sys.argv) > 1 else "config.csv"
+out_path = sys.argv[2] if len(sys.argv) > 2 else "config.bin"
 
 with open(config_path, newline="") as f:
     rows = [clean(r) for r in csv.reader(f)]
 
-# Drop blank lines and '#' comments so a kernel can document its own
-# input-slot and constant requirements in the file that needs them.
+# Drop blank lines and '#' comments.
 rows = [r for r in rows if r and r[0] and not r[0].startswith("#")]
 
 if len(rows) < 5:
@@ -287,15 +266,14 @@ mode_word = (
     | ((mode_bit["branch_mode"] or 0) << 1)
 )
 
-# The LCU field is 38 bits in five bytes, so the mode rides in the two spare
-# top bits of the last one and config.bin stays 33 bytes.
+# Mode bits use the two spare top bits of the 38-bit LCU word's fifth byte.
 lcu_word |= mode_word << 38
 
 for i in range(5):
     out.append((lcu_word >> (8 * i)) & 0xFF)
 
-with open("config.bin", "wb") as f:
+with open(out_path, "wb") as f:
     f.write(out)
 
-print(f"Wrote config.bin ({len(out)} bytes)")
+print(f"Wrote {out_path} ({len(out)} bytes)")
 print(f"  cmp_min={mode_bit['cmp_min'] or 0}  branch_mode={mode_bit['branch_mode'] or 0}")

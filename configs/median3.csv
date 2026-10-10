@@ -1,18 +1,17 @@
-# median(a,b,c) on a MAX page -- no MIN opcode needed.
-# Uses the two-element identity  min(x,y) = x + y - max(x,y),  which is
-# cheaper than negating (-MAX(-x,-y)) and needs no zero constant.
+# Written by Claude.
+# median(a,b,c) using only MAX, via min(x,y) = x + y - max(x,y)
 #
-#   m1 = max(a,b)            s1 = a+b        lo  = s1 - m1 = min(a,b)
-#   m2 = max(m1,c)           s2 = m1+c       mid = s2 - m2 = min(m1,c)
+#   lo  = (a+b) - max(a,b)            = min(a,b)
+#   mid = (max(a,b)+c) - max(max(a,b),c) = min(max(a,b),c)
 #   median = max(lo, mid)
 #
-# inputs  [0]=a  [1]=b  [2]=b (duplicated so row 0 can form a+b)  [3]=c
-# buses   row 0 -> a,  row 1 -> m1,  row 2 -> c
-# output  median at output[2]
-#
-# cycles  8 (timeout-terminated, feed-forward)
+# inputs  [0] = a  [1] = b  [2] = b (duplicate)  [3] = c
+# output  output[2] = median
+# cycles  8 (feed-forward, ends on timeout)
 # range   needs |a+b| < 4 and |max(a,b)+c| < 4
 #
+#@ inputs 2000 1000 1000 3000
+#@ board  sw=3 led=2
 PASS N,  MAX N W,  ADD N R,  PASS N
 ADD E W, PASS N,   SUB N R,  PASS N
 PASS N,  MAX N R,  PASS N,   PASS N
